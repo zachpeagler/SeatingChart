@@ -1,0 +1,726 @@
+#install.packages("data.table")
+#install.packages("lubridate")
+#install.packages("forecast")
+#install.packages("tidyverse")
+#install.packages("openxlsx")
+
+library(data.table)
+library(lubridate)
+library(forecast)
+library(tidyverse)
+require(openxlsx)
+
+# not configuration, used to id certain types/orders for columns
+forecast_types <- c("ARIMA", "ESM", "HOLT")
+year_ids <- c("CM", "WD", "DM", "MD", "WY", "SPEED_15", "SPEED_30", "MOON_SIGN", "VENUS_SIGN", "VENUS_SPEED", "VENUS_SPEED_R")
+mercury_ids <- c("M15_PK", "M30_PK", "MOON_SS", "VENUS_SS", "VENUS_SRS")
+
+forescast_metrics_order <- c("_SMV", "_SMV_P1",	"_SMV_P2",	"_SMV_P3",	"_A1_FV",	"_A2_FV",	"_A3_FV")
+forescast_order <- c("_A1_FV", "_A1", "_A2_FV", "_A2", "_A3_FV", "_A3")
+series_order_1 <- c("","","", "ARIMA_", "ARIMA3_","ARIMA_", "ARIMA3_","ARIMA_", "ARIMA3_",
+                    "ESM_", "ESM3_", "ESM_", "ESM3_","ESM_", "ESM3_",
+                    "HOLT_", "HOLT3_","HOLT_", "HOLT3_","HOLT_", "HOLT3_", 
+                    "CUSTOM_", "CUSTOM3_","CUSTOM_", "CUSTOM3_","CUSTOM_", "CUSTOM3_")
+
+series_order_2 <- c("_A1","_A2","_A3", "_A1","_A1","_A2","_A2","_A3","_A3", 
+                    "_A1", "_A1","_A2","_A2","_A3","_A3",
+                    "_A1", "_A1","_A2","_A2","_A3","_A3",
+                    "_A1", "_A1","_A2","_A2","_A3","_A3")
+
+
+data_matrix_order <- c("_MV", "_SMV")
+
+# Define Functions
+'%!in%' <- function(x,y)!('%in%'(x,y))
+
+
+calculate_time_columns <- function(key_matrix, df, LQM_val, custom_forecast){
+
+  key_matrix <- copy(key_matrix)
+  df <- copy(df)
+  
+  key_matrix[,DATE := mdy(DATE)]
+  df[,DATE := mdy(get(date_column))]
+  
+  
+  keep <- c("DATE", value)
+  if (custom_forecast){
+    keep <- c("DATE", value, "CUSTOM")
+  }
+  df <- df[order(DATE)]
+  df <- df[,..keep]
+  
+  ########################
+  # Merge
+  
+  df <- df[key_matrix, on = "DATE", nomatch=0]
+  
+  # add extra date variables
+  df[,QTR := quarter(DATE)]
+  df[,SEM := QTR]
+  df$SEM[df$SEM == 2] = 1
+  df$SEM[df$SEM > 1] = 2
+  df[,YEAR := year(DATE)]
+  
+  # filter out years you don't w
+  df <- df[!is.na(DATE)]
+  
+  ########################
+  # calculate yearly means
+  
+  df_yearly <- df[,.(AMV = mean(get(value))), by = "YEAR"]
+  df <- df[df_yearly, on = "YEAR"]
+  
+  ########################
+  # calculate LQM
+  
+  df[,YQ := paste0(YEAR,"_",QTR)]
+  df[,LQ := ifelse(QTR-1 == 0, 4,QTR-1)]
+  df[,LQY := ifelse(LQ == 4, YEAR-1,YEAR)]
+  
+  temp <- df[df[, .I[tail(seq_len(.N), LQM_val)], YQ]$V1]
+  temp <- temp[,.(LQM = mean(get(value))),by =  c("QTR", "YEAR")]
+  temp <- unique(temp)
+  df <- merge(df, temp, by.x = c("LQ", "LQY"),  by.y = c("QTR", "YEAR"), all = TRUE)
+  df <- df[order(DATE)]
+  df[,LQ := NULL]
+  df[,LQY := NULL]
+  df[,YQ := NULL]
+  
+  df <- df[!is.na(YEAR),]
+  
+  return(df)
+}
+
+
+calculate_season_means <- function(df, column, value){
+  df <- copy(df)
+  name_mv <- paste0(column, "_", "MV")
+  name_smv <- paste0(column, "_", "SMV")
+  
+  temp <-  df[, .(mean(get(value))), by = column]
+  setnames(temp, "V1", name_mv)
+  df <- df[temp, on = column]
+  df[,"V1" := df[[name_mv]]/AMV]
+  setnames(df, "V1", name_smv)
+  return(df)
+}
+
+# adds the P columns to year based columns
+add_P_columns_year <- function(df, column, lag_val){
+  name_smv <- paste0(column, "_", "SMV")
+  name_smv_p1 <- paste0(column, "_", "SMV_P", lag_val)
+  
+  temp <- copy(df)
+  temp[,YEAR := YEAR+lag_val]
+  
+  subset_columns <- c("YEAR", column, name_smv)
+  join_columns <- c("YEAR", column)
+  
+  temp <- temp[, ..subset_columns]
+  setnames(temp, name_smv, name_smv_p1)
+  temp <- unique(temp)
+  df <- merge(df, temp, by = join_columns, all.x = TRUE)
+  df <- df[order(DATE)]
+  return(df)
+}
+
+# adds the P columns to mercury based columns
+add_P_columns_merc <- function(df, column, value){
+  
+  name_mv <- paste0(column, "_", "MV")
+  name_smv <- paste0(column, "_", "SMV")
+  
+  temp <-  df[, .(mean(get(value))), by = c(column, "YEAR", "AMV")]
+  setnames(temp, "V1", name_mv)
+  
+  temp[,"V1" := temp[[name_mv]]/AMV]
+  setnames(temp, "V1", name_smv)
+  temp[,"AMV" := NULL]
+  
+  temp[,eval(column) := substr(get(column),1,nchar(get(column))-5)]
+  rows <- sample(nrow(temp))
+  temp <- temp[rows, ]
+
+  nm1 <- c(name_mv, name_smv)
+  for (i in 1:3){
+    browser
+    nm3 <- paste0(nm1,"_P", i)
+    temp[order(get(column),YEAR), (nm3) := shift(.SD, type='lag', n=i), by = c(column), .SDcols=nm1]
+  }
+  join_columns <- c(column)
+  temp[[column]] <- paste0(temp[[column]], "-", temp[["YEAR"]])
+  temp[,YEAR := NULL]
+  df <- merge(df, temp, by = join_columns, all.x = TRUE)
+  df <- df[order(DATE)]
+  return(df)
+}
+
+calculate_forecast_metrics <- function(df, column){
+  name_1 <- paste0(column, "_A1","_FV")
+  name_2 <- paste0(column, "_A2","_FV")
+  name_3 <- paste0(column, "_A3","_FV")
+  name_smv_p1 <- paste0(column, "_SMV_P1")
+  name_smv_p2 <- paste0(column, "_SMV_P2")
+  name_smv_p3 <- paste0(column, "_SMV_P3")
+  
+  df[[name_1]] <- df[[name_smv_p1]]
+  df[[name_2]] <- (df[[name_smv_p1]] + df[[name_smv_p2]])/2
+  df[[name_3]] <- (df[[name_smv_p1]] + df[[name_smv_p2]] + df[[name_smv_p2]])/3
+  
+  df[[name_2]] <- ifelse(is.na(df[[name_2]]) | df[[name_2]] == 0, df[[name_1]], df[[name_2]])
+  df[[name_3]] <- ifelse(is.na(df[[name_3]]) | df[[name_3]] == 0, df[[name_1]], df[[name_3]])
+  
+  return(df)
+}
+
+
+calculate_forecasts <- function(df, column){
+  name_1_FV <- paste0(column, "_A1","_FV")
+  name_2_FV <- paste0(column, "_A2","_FV")
+  name_3_FV <- paste0(column, "_A3","_FV")
+  
+  name_1 <- paste0(column, "_A1")
+  name_2 <- paste0(column, "_A2")
+  name_3 <- paste0(column, "_A3")
+  
+  df[[name_1]] <- df[[name_1_FV]] * df[["LQM"]]
+  df[[name_2]] <- df[[name_2_FV]] * df[["LQM"]]
+  df[[name_3]] <- df[[name_3_FV]] * df[["LQM"]]
+  
+  return(df)
+  
+}
+
+create.statistical.forecasts.qtr.qn <- function (df, Year, Qtr, forecast.metric) {
+  
+  cat(paste0(' ', Qtr, ' '))
+  
+  if (Qtr == 'Q1') {
+    
+    if (Year %% 4 == 0) {
+      FcstLen = 91
+    } else {
+      FcstLen = 90
+    }
+    FcstStart <- as.Date(paste0('01/01/',Year), format = '%m/%d/%Y') 
+    FcstEnd <- as.Date(paste0('03/31/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q2') {
+    
+    FcstLen <-  91
+    FcstStart <- as.Date(paste0('04/01/',Year), format = '%m/%d/%Y') 
+    FcstEnd <- as.Date(paste0('06/30/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q3') {
+    
+    FcstLen <-  92
+    FcstStart <- as.Date(paste0('07/01/',Year), format = '%m/%d/%Y') 
+    FcstEnd <- as.Date(paste0('09/30/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q4') {
+    
+    FcstLen <-  92
+    FcstStart <- as.Date (paste0 ('10/01/',Year), format = '%m/%d/%Y') 
+    FcstEnd <- as.Date (paste0 ('12/31/',Year), format = '%m/%d/%Y') 
+    
+  }
+  
+  # Subset input data to training and testing (fit and predict) sets
+  fit.data <- df %>%
+    select(DATE, forecast.metric) %>%
+    mutate(NewDate = as.Date(DATE, format = "%m/%d/%y")) %>%
+    dplyr::filter((NewDate < FcstStart)) %>%
+    select(DATE = NewDate, forecast.metric) %>%
+    arrange(DATE)
+  
+  fcst.fit.qn <- as.ts(fit.data[,2], frequency = FcstLen, start = 1)
+  
+  # -----------------------------------------------------------------------------------
+  # PART I: Fit and forecast models
+  # -----------------------------------------------------------------------------------
+  ## ARIMA
+  arima.mod.qn <- auto.arima(fcst.fit.qn, ic='aic')
+  arima.pred.qn <- as.vector(forecast(arima.mod.qn, h=FcstLen)$mean)
+  
+  ## ESM
+  esm.mod.qn <- ets(fcst.fit.qn, model = 'ZZZ', ic = 'aic', allow.multiplicative.trend = TRUE)
+  esm.pred.qn <- as.vector(forecast(esm.mod.qn, h=FcstLen)$mean)
+  
+  ## HOLT
+  holt.mod.qn <- holt(fcst.fit.qn, damped = TRUE, h = FcstLen)
+  holt.pred.qn <- as.vector(forecast(holt.mod.qn, h=FcstLen)$mean)
+  
+  dates.qn <- as.data.frame(seq(FcstStart, FcstEnd, by="days"))
+  colnames(dates.qn) <- "DATE"
+  
+  forecasts.qn <- dates.qn %>%
+    cbind(arima.pred.qn) %>%
+    cbind(esm.pred.qn) %>%
+    cbind(holt.pred.qn)
+  colnames(forecasts.qn) <- c("DATE", "ARIMA", "ESM", "HOLT")
+  
+  nrow(forecasts.qn)    
+  return (forecasts.qn)
+  
+}
+
+create.statistical.forecasts.qtr <- function (df, Yrs, forecast.metric) {
+  
+  cat(paste0('Create Quarterly Stats Forecasts'))
+  forecast.vars <- c('DATE','YEAR', 'QTR', forecast.metric)
+  df_temp <- df[, forecast.vars, with=F]
+  
+  for (i in 1:length(Yrs)) {
+    # i <- 1
+    FcstYear <- Yrs[i]
+    cat ( paste0 ( '\n\t', FcstYear, '. '))  ## DD191015: Added newline and tab punctuation
+    
+    forecasts.q1 <- create.statistical.forecasts.qtr.qn (df_temp, FcstYear, 'Q1', forecast.metric) 
+    forecasts.q2 <- create.statistical.forecasts.qtr.qn (df_temp, FcstYear, 'Q2', forecast.metric) 
+    forecasts.q3 <- create.statistical.forecasts.qtr.qn (df_temp, FcstYear, 'Q3', forecast.metric)  
+    forecasts.q4 <- create.statistical.forecasts.qtr.qn (df_temp, FcstYear, 'Q4', forecast.metric)  
+    
+    if (!exists("forecasts.many.years")){
+      forecasts.many.years <- forecasts.q1 [ 1 == 0 ]
+    }
+    
+    forecasts.many.years <- rbind (forecasts.many.years, forecasts.q1, forecasts.q2, forecasts.q3, forecasts.q4)
+    forecasts.one.year <- rbind (forecasts.q1, forecasts.q2, forecasts.q3, forecasts.q4)
+    
+  }  # years for loop
+  
+  before.merge.rows <- nrow (df)
+  forecasts.many.years <- unique(forecasts.many.years)
+  df <- merge(df, forecasts.many.years, by = c('DATE'), all.x = TRUE)
+  after.merge.rows <- nrow(df)
+  print(before.merge.rows == after.merge.rows)
+  
+  return(df)
+}
+
+## annual
+create.statistical.forecasts.ann.qn <- function (df, Year, forecast.metric) {
+  
+  cat(paste0(' ', ' '))
+  
+  if (Year %% 4 == 0) {
+    FcstLen = 366
+  } else {
+    FcstLen = 365
+  }
+  
+  FcstStart <- as.Date(paste0('01/01/',Year), format = '%m/%d/%Y') 
+  FcstEnd <- as.Date(paste0('12/31/',Year), format = '%m/%d/%Y')
+  
+  # Subset input data to training and testing (fit and predict) sets
+  fit.data <- df %>%
+    select(DATE, forecast.metric) %>%
+    mutate(NewDate = as.Date(DATE, format = "%m/%d/%y")) %>%
+    dplyr::filter((NewDate < FcstStart)) %>%
+    select(DATE = NewDate, forecast.metric) %>%
+    arrange(DATE)
+  
+  fcst.fit.qn <- as.ts(fit.data[,2], frequency = FcstLen, start = 1)
+  
+  # -----------------------------------------------------------------------------------
+  # PART I: Fit and forecast models
+  # -----------------------------------------------------------------------------------
+  ## ARIMA
+  arima.mod.qn <- auto.arima(fcst.fit.qn, ic='aic')
+  arima.pred.qn <- as.vector(forecast(arima.mod.qn, h=FcstLen)$mean)
+  
+  ## ESM
+  esm.mod.qn <- ets(fcst.fit.qn, model = 'ZZZ', ic = 'aic', allow.multiplicative.trend = TRUE)
+  esm.pred.qn <- as.vector(forecast(esm.mod.qn, h=FcstLen)$mean)
+  
+  ## HOLT
+  holt.mod.qn <- holt(fcst.fit.qn, damped = TRUE, h = FcstLen)
+  holt.pred.qn <- as.vector(forecast(holt.mod.qn, h=FcstLen)$mean)
+  
+  dates.qn <- as.data.frame(seq(FcstStart, FcstEnd, by="days"))
+  colnames(dates.qn) <- "DATE"
+  
+  forecasts.qn <- dates.qn %>%
+    cbind(arima.pred.qn) %>%
+    cbind(esm.pred.qn) %>%
+    cbind(holt.pred.qn)
+  colnames(forecasts.qn) <- c("DATE", "ARIMA", "ESM", "HOLT")
+  
+  nrow(forecasts.qn)    
+  return (forecasts.qn)
+  
+}
+## annual
+create.statistical.forecasts.ann <- function (df, Yrs, forecast.metric) {
+  
+  cat(paste0('Create Annual Stats Forecasts'))
+  forecast.vars <- c('DATE','YEAR', forecast.metric)
+  df_temp <- df[, forecast.vars, with=F]
+  
+  for (i in 1:length(Yrs)) {
+    # i <- 1
+    FcstYear <- Yrs[i]
+    cat ( paste0 ( '\n\t', FcstYear, '. '))  ## DD191015: Added newline and tab punctuation
+
+    forecasts <- create.statistical.forecasts.ann.qn (df_temp, FcstYear, forecast.metric) 
+
+    if (!exists("forecasts.many.years")){
+      forecasts.many.years <- forecasts [ 1 == 0 ]
+    }
+    
+    forecasts.many.years <- rbind (forecasts.many.years, forecasts)
+    forecasts.one.year <- forecasts
+    
+  }  # years for loop
+  
+  before.merge.rows <- nrow (df)
+  forecasts.many.years <- unique(forecasts.many.years)
+  df <- merge(df, forecasts.many.years, by = c('DATE'), all.x = TRUE)
+  after.merge.rows <- nrow(df)
+  print(before.merge.rows == after.merge.rows)
+  
+  return(df)
+}
+
+orchestrate.table.creation <- function(df, data_matrix, period) {
+  ########################
+  # Orchestrate Table Creation
+  temp_vars <- c("DATE", "YEAR", "QTR", "SEM", "LQM", value)
+  
+  forecast_metrics <- df[,..temp_vars]
+  forecasts <- df[,..temp_vars]
+  
+  # create environment to hold accuracy data frames
+  ACCURACY <- new.env()
+  
+  # loop over ids to perform analysis on each
+  for (i in ids){
+    temp_names <-c("DATE", "YEAR", "QTR", "SEM", "LQM", value, i, forecast_types, "AMV")
+    df_temp <- copy(df[, temp_names, with = FALSE])
+    
+    if (i %in% mercury_ids){
+      df_temp <- add_P_columns_merc(df_temp, i, value)
+    } else{
+      df_temp <- calculate_season_means(df_temp, i, value)
+      for (j in c(1,2,3)){
+        df_temp <- add_P_columns_year(df_temp, i, j)
+      }
+    }
+    data_matrix_names <- c("DATE", i, paste0(i, data_matrix_order))
+    data_matrix <- merge(data_matrix, df_temp[, ..data_matrix_names], by = c("DATE"), suffixes = c("", "."))
+    
+    df_temp <- calculate_forecast_metrics(df_temp, i)
+    forecast_metrics_names <- c("DATE", "YEAR",	"QTR", "SEM", i, paste0(i, forescast_metrics_order))
+    forecast_metrics <- merge(forecast_metrics, df_temp[, ..forecast_metrics_names], by = c("DATE", "YEAR", "QTR", "SEM"))
+    
+    df_temp <- calculate_forecasts(df_temp, i)
+    forecast_names <- c("DATE", "YEAR",	"QTR", "SEM", i, paste0(i, forescast_order))
+    forecasts <- merge(forecasts, df_temp[, ..forecast_names], by = c("DATE", "YEAR", "QTR", "SEM"))
+    
+    for (j in forecast_types){
+      df_temp <- calculate_hybrid_forecasts(df_temp, i, j)
+    }
+    
+    series_names <- c("DATE", "YEAR",	"QTR", "SEM", value,  forecast_types, i, paste0(series_order_1, i, series_order_2))
+    series_names <- series_names[series_names %in% colnames(df_temp)]
+    
+    df_temp <- df_temp[(YEAR >= min(Yrs_to_forecast) & YEAR <= max(Yrs_to_forecast)), ..series_names]
+    
+    acc_table <- cbind(df_temp[,YEAR], df_temp[, .SD, .SDcols = c(6:8)], df_temp[, .SD, .SDcols = c(10:ncol(df_temp))]) 
+    
+    if (custom_forecast){
+      acc_table <- cbind(df_temp[,YEAR], df_temp[, .SD, .SDcols = c(6:9)],df_temp[, .SD, .SDcols = c(11:ncol(df_temp))]) 
+    }
+    
+    # Jamie edits ******************************************************************
+    names(acc_table)[1] <- 'YEAR'
+    years <- as.numeric(names(table(df_temp[,YEAR])))
+    
+    for (year in years) {
+      
+      acc_table_year = acc_table[YEAR == year,]
+      df_temp_year = df_temp[YEAR == year,]
+      
+      df_acc = create_acc_df(acc_table_year, df_temp_year)
+      
+      df_acc[,c(1:2)] <- df_acc[order(df_acc$MAPE), c(1:2)]
+      df_acc[,c(4:5)] <- df_acc[order(df_acc$MAE), c(4:5)]
+      df_acc[,c(7:8)] <- df_acc[order(df_acc$RMSE), c(7:8)]
+      ## split
+      df_acc_MAPE <- df_acc[,c(1:2)]
+      df_acc_MAE <- df_acc[,c(4:5)]
+      df_acc_RMSE <- df_acc[,c(7:8)]
+      df_spacer <- df_acc[,3]
+      ## remove duplicates
+      df_acc_MAPE <- df_acc_MAPE[!duplicated(df_acc_MAPE$metric),]
+      df_acc_MAPE$spacer <- "    "
+      df_acc_MAE <- df_acc_MAE[!duplicated(df_acc_MAE$metric),]
+      df_acc_MAE$spacer <- "    "
+      df_acc_RMSE <- df_acc_RMSE[!duplicated(df_acc_RMSE$metric),]
+      
+      df_acc_total <- cbind(df_acc_MAPE, df_acc_MAE)
+      df_acc_total <- cbind(df_acc_total, df_acc_RMSE)
+      
+      assign(paste('acc', i, year, sep='_'), df_acc_total, envir = ACCURACY)
+      
+      if (period %in% c('Q', 'A')) {
+        
+        dates = seq.Date(as.Date(paste(year, 1, 1, sep = '-')), as.Date(paste(year, 12, 31, sep = '-')), "day")
+        ## Edit to enable functionality for datasets without every day of the year.
+        ### load temp data
+        tdat <- read.csv(data_path)
+        ### get data column from temp data
+        data_dates <- tdat[,date_column]
+        ### format the dates from temp data
+        data_dates_p <- as.data.frame(as.Date(data_dates, format="%m/%d/%y"))
+        ### get all the dates from the temp data in our selected year
+        dates_in_year <- data_dates_p %>% filter(year(data_dates_p[[1]]) %in% year)
+        clean_dates <- dates_in_year[[1]]
+        
+        for (q in 1:4) {
+          
+          QStart = getQStartEndDates(paste('Q', q, sep = ''), year)[1]
+          QEnd = getQStartEndDates(paste('Q', q, sep = ''), year)[2]
+          
+          acc_table_Qtr = acc_table_year[clean_dates >= QStart & clean_dates <= QEnd, ]
+          df_temp_Qtr = df_temp_year[clean_dates >= QStart & clean_dates <= QEnd, ]
+          
+          df_acc = create_acc_df(acc_table_Qtr, df_temp_Qtr)
+          
+          df_acc[,c(1:2)] <- df_acc[order(df_acc$MAPE), c(1:2)]
+          df_acc[,c(4:5)] <- df_acc[order(df_acc$MAE), c(4:5)]
+          df_acc[,c(7:8)] <- df_acc[order(df_acc$RMSE), c(7:8)]
+          ## split
+          df_acc_MAPE <- df_acc[,c(1:2)]
+          df_acc_MAE <- df_acc[,c(4:5)]
+          df_acc_RMSE <- df_acc[,c(7:8)]
+          df_spacer <- df_acc[,3]
+          ## remove duplicates
+          df_acc_MAPE <- df_acc_MAPE[!duplicated(df_acc_MAPE$metric),]
+          df_acc_MAPE$spacer <- "    "
+          df_acc_MAE <- df_acc_MAE[!duplicated(df_acc_MAE$metric),]
+          df_acc_MAE$spacer <- "    "
+          df_acc_RMSE <- df_acc_RMSE[!duplicated(df_acc_RMSE$metric),]
+          
+          df_acc_total <- cbind(df_acc_MAPE, df_acc_MAE)
+          df_acc_total <- cbind(df_acc_total, df_acc_RMSE)
+          
+          assign(paste('acc', i, year, 'Qtr', q, sep='_'), df_acc_total, envir = ACCURACY)
+          
+        }
+        
+      }
+      
+    }
+    # Jamie edits ******************************************************************
+    
+    # output individual analysis to output list
+    output1[[paste0(i, " SERIES")]] <- copy(df_temp)
+  }
+  
+  forecasts_names <- c("DATE", forecast_types)
+  forecasts <- merge(forecasts, df[,..forecasts_names], by = ("DATE"))
+  
+  # output overall analysis to output list
+  output1[["DATA MATRIX"]] <- copy(data_matrix[,])
+  output1[["FORECAST METRICS"]] <- copy(forecast_metrics[(YEAR >= min(Yrs_to_forecast) & YEAR <= max(Yrs_to_forecast)),])
+  output1[["FORECASTS"]] <- copy(forecasts[(YEAR >= min(Yrs_to_forecast) & YEAR <= max(Yrs_to_forecast)),])
+  
+  ## Output Summary Stats
+  output_path1 <- paste0(substr(data_path,1,nchar(data_path)-4),"-", min(Yrs_to_forecast), 
+                         "-", max(Yrs_to_forecast), "-", value, "-LMQn", LQM_val, "-DATA-", period, ".xlsx",sep="")
+  
+  # set order
+  sheet_names <- c("DATA MATRIX", "FORECAST METRICS", "FORECASTS")
+  for (i in ids){sheet_names <- c(sheet_names, paste0(i, " SERIES"))}
+  output1 <- output1[sheet_names]
+  
+  for(i in names(output1)){
+    print(paste0(i, " dimensions are:  ", length(output1[[i]]), " columns x ", nrow(output1[[i]]), " rows"))
+  }
+  
+  openxlsx::write.xlsx(output1, file = output_path1)
+  
+  
+  # Jamie edits ******************************************************************
+  ## Output Accuracy Stats
+  
+  if (period %in% c('Q', 'A')) {
+    for (q in 1:4) {
+      for (year in years) {
+        df_acc <- get(paste('acc', ids[1], year, 'Qtr', q, sep = '_'), envir = ACCURACY)
+        for (j in 1:length(ids)) {
+          df_acc <- rbind(df_acc, get(paste('acc', ids[j], year, 'Qtr', q, sep = '_'), envir = ACCURACY))
+        }
+        df_acc <- df_acc[!duplicated(df_acc),]
+        ## Zach edit - order accuracy dataframe by accuracy metric
+        df_acc[,c(1:2)] <- df_acc[order(df_acc$MAPE), c(1:2)]
+        df_acc[,c(4:5)] <- df_acc[order(df_acc$MAE), c(4:5)]
+        df_acc[,c(7:8)] <- df_acc[order(df_acc$RMSE), c(7:8)]
+        ## split
+        df_acc_MAPE <- df_acc[,c(1:2)]
+        df_acc_MAE <- df_acc[,c(4:5)]
+        df_acc_RMSE <- df_acc[,c(7:8)]
+        df_spacer <- df_acc[,3]
+        ## remove duplicates
+        df_acc_MAPE <- df_acc_MAPE[!duplicated(df_acc_MAPE$metric),]
+        df_acc_MAPE$spacer <- "    "
+        df_acc_MAE <- df_acc_MAE[!duplicated(df_acc_MAE$metric),]
+        df_acc_MAE$spacer <- "    "
+        df_acc_RMSE <- df_acc_RMSE[!duplicated(df_acc_RMSE$metric),]
+        
+        df_acc_total <- cbind(df_acc_MAPE, df_acc_MAE)
+        df_acc_total <- cbind(df_acc_total, df_acc_RMSE)
+        
+        output2[[as.character(year)]] <- df_acc_total
+      }
+      if (period == 'A') {
+        output_path2 <- paste0(substr(data_path,1,nchar(data_path)-4),"-", min(Yrs_to_forecast), 
+                               "-", max(Yrs_to_forecast), "-", value, "-LMQn", LQM_val, "-ACCURACY-", period, 'Q', q, ".xlsx",sep="")
+      } else {
+        output_path2 <- paste0(substr(data_path,1,nchar(data_path)-4),"-", min(Yrs_to_forecast), 
+                               "-", max(Yrs_to_forecast), "-", value, "-LMQn", LQM_val, "-ACCURACY-", period, q, ".xlsx",sep="")
+      }
+      
+      sheet_names <- sort(ls(output2))
+      output2 <- output2[sheet_names]
+      
+      openxlsx::write.xlsx(output2, file = output_path2)
+    }
+  }
+  
+  for (year in years) {
+    df_acc <- get(paste('acc', ids[1], year, sep = '_'), envir = ACCURACY)
+    for (j in 1:length(ids)) {
+      df_acc <- rbind(df_acc, get(paste('acc', ids[j], year, sep = '_'), envir = ACCURACY))
+    }
+    df_acc <- df_acc[!duplicated(df_acc),]
+    ## Zach edit - order accuracy dataframe by accuracy metric
+    df_acc[,c(1:2)] <- df_acc[order(df_acc$MAPE), c(1:2)]
+    df_acc[,c(4:5)] <- df_acc[order(df_acc$MAE), c(4:5)]
+    df_acc[,c(7:8)] <- df_acc[order(df_acc$RMSE), c(7:8)]
+    ## split
+    df_acc_MAPE <- df_acc[,c(1:2)]
+    df_acc_MAE <- df_acc[,c(4:5)]
+    df_acc_RMSE <- df_acc[,c(7:8)]
+    df_spacer <- df_acc[,3]
+    ## remove duplicates
+    df_acc_MAPE <- df_acc_MAPE[!duplicated(df_acc_MAPE$metric),]
+    df_acc_MAPE$spacer <- "    "
+    df_acc_MAE <- df_acc_MAE[!duplicated(df_acc_MAE$metric),]
+    df_acc_MAE$spacer <- "    "
+    df_acc_RMSE <- df_acc_RMSE[!duplicated(df_acc_RMSE$metric),]
+    
+    df_acc_total <- cbind(df_acc_MAPE, df_acc_MAE)
+    df_acc_total <- cbind(df_acc_total, df_acc_RMSE)
+      
+    output2[[as.character(year)]] <- df_acc_total
+  }
+  
+  output_path2 <- paste0(substr(data_path,1,nchar(data_path)-4),"-", min(Yrs_to_forecast), 
+                         "-", max(Yrs_to_forecast), "-", value, "-LMQn", LQM_val, "-ACCURACY-", period, ".xlsx",sep="")
+  
+  sheet_names <- sort(ls(output2))
+  output2 <- output2[sheet_names]
+  
+  openxlsx::write.xlsx(output2, file = output_path2)
+  
+  
+  # Jamie edits ******************************************************************
+  
+}
+
+getQStartEndDates = function(Qtr, Year) {
+  if (Qtr == 'Q1') {
+    
+    QStart <- as.Date(paste0('01/01/',Year), format = '%m/%d/%Y') 
+    QEnd <- as.Date(paste0('03/31/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q2') {
+    
+    QStart <- as.Date(paste0('04/01/',Year), format = '%m/%d/%Y') 
+    QEnd <- as.Date(paste0('06/30/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q3') {
+    
+    QStart <- as.Date(paste0('07/01/',Year), format = '%m/%d/%Y') 
+    QEnd <- as.Date(paste0('09/30/',Year), format = '%m/%d/%Y') 
+    
+  } else if (Qtr == 'Q4') {
+    
+    QStart <- as.Date (paste0 ('10/01/',Year), format = '%m/%d/%Y') 
+    QEnd <- as.Date (paste0 ('12/31/',Year), format = '%m/%d/%Y') 
+    
+  }
+  return(c(QStart, QEnd))
+}
+
+create_acc_df = function(acc_table_x, df_temp_x) {
+  
+  MAPE <- colMeans((abs((acc_table_x - df_temp_x[[value]]) /abs(df_temp_x[[value]])))*100, na.rm = TRUE)
+  MAE <- colMeans(abs(acc_table_x - df_temp_x[[value]]), na.rm = TRUE)
+  RMSE <- sqrt(colMeans((df_temp_x[[value]] - acc_table_x)^2 , na.rm = TRUE))
+  
+  accuracy <- rbind(MAPE, MAE, RMSE)
+  accuracy <- as.data.frame(list(accuracy))
+  accuracy <- t(accuracy)
+  accuracy <- accuracy[-1,] # remove YEAR
+  accuracy <- as.data.frame(accuracy)
+  if (custom_forecast) row.names(accuracy) <- gsub('CUSTOM', custom_output_name, row.names(accuracy))
+  accuracy$metric <- row.names(accuracy)
+  
+  forecast2exclude <- c('ARIMA', 'ESM', 'HOLT')
+  forecast2exclude <- forecast2exclude[c('ARIMA', 'ESM', 'HOLT') %!in% output_forecast_options]
+  mao2exclude <- c('A1', 'A2', 'A3')
+  mao2exclude <- mao2exclude[mao2exclude %!in% output_ma_options]
+  trad32exclude <- output_trad3_options
+  if (custom_forecast == TRUE){
+    output_forecast_options <- c(output_forecast_options, custom_output_name)
+  }
+  exclude <- rep(F, nrow(accuracy))
+  for (fo in forecast2exclude) {
+    exclude <- exclude | unlist(lapply(row.names(accuracy), function(x) regexpr(fo, x)>0))
+  }
+  for (mao in mao2exclude) {
+    exclude <- exclude | unlist(lapply(row.names(accuracy), function(x) regexpr(paste('_', mao, sep=''), x)>0))
+  }
+  if (output_trad3_options == "1:1") {
+  for (fo in output_forecast_options) {
+    exclude <- exclude | unlist(lapply(row.names(accuracy), function(x) regexpr(paste0("\\b",fo,"3\\b"), strsplit(x, split="_")[1])>0))
+  } } else if (output_trad3_options == "3:1") {
+    for (fo in output_forecast_options) {
+      exclude <- exclude | unlist(lapply(row.names(accuracy), function(x) regexpr(paste0("\\b",fo,"\\b"), strsplit(x, split="_")[1])>0))
+    }
+  }
+  
+  accuracy <- accuracy[!exclude,]
+  accuracy$space = "    "
+  setDT(accuracy)
+  
+  accuracy <- cbind(accuracy[,.(metric, MAPE, space)],
+                    accuracy[,.(metric, MAE, space)],
+                    accuracy[,.(metric, RMSE)]
+                    )
+  return(accuracy)
+}
+
+# Jamie edits ******************************************************************
+
+
+calculate_hybrid_forecasts <- function(df, column, forecast_type){
+  df <- copy(df)
+  column1 <- paste0(column, "_A1")
+  column2 <- paste0(column, "_A2")
+  column3 <- paste0(column, "_A3")
+  
+  df[,paste0(forecast_type, "_", column1) := (df[[forecast_type]] + df[[column1]]) / 2]
+  df[,paste0(forecast_type, 3, "_", column1) := ((df[[forecast_type]]*3) + df[[column1]]) / 4]
+  df[,paste0(forecast_type, "_", column2) := (df[[forecast_type]] + df[[column2]]) / 2]
+  df[,paste0(forecast_type, 3, "_", column2) := ((df[[forecast_type]]*3) + df[[column2]]) / 4]
+  df[,paste0(forecast_type, "_", column3) := (df[[forecast_type]] + df[[column3]]) / 2]
+  df[,paste0(forecast_type, 3, "_", column3) := ((df[[forecast_type]]*3) + df[[column3]]) / 4]
+  
+  return(df)
+  
+}

@@ -1,0 +1,39 @@
+# paths to forecast matrix and data
+data_path <- "./FARSca.csv"
+matrix_path <- "./FULL_FORECAST_MATRIX_NEW2.csv"
+
+# target variable
+value <- "Crashes"
+
+# date column
+date_column <- "Date"
+
+# analysis and order to include in output determined here
+# OPTIONS "CM", "WD", "DM", "MD", "WY", "SPEED_15", "SPEED_30", "M15_PK",
+# "M30_PK","MOON_SIGN", "MOON_SS", "VENUS_SS", "VENUS_SRS", "MOON_SPEED",
+# "VENUS_SIGN", "VENUS_SPEED", "VENUS_SPEED_R"
+ids <- c("CM", "WD", "DM", "MD", "WY", "SPEED_15", "SPEED_30", "M15_PK",
+         "M30_PK","MOON_SIGN", "MOON_SS", "VENUS_SS", "VENUS_SRS", "MOON_SPEED",
+         "VENUS_SIGN", "VENUS_SPEED", "VENUS_SPEED_R")
+
+# SELECT TRADITIONAL FORECASTS TO INCLUDE 'ARIMA", 'HOLT', 'ESM'
+output_forecast_options <- c('ARIMA', 'HOLT', 'ESM')
+
+# SELECT MOVING AVERAGES TO INCLUDE 'A1', 'A2', 'A3'
+output_ma_options <- c('A3')
+
+# SELECT TRAD3 OUTPUT OPTION: '1:1', '3:1', or 'BOTH'
+output_trad3_options <- c('1:1')
+
+# years that are used to forecast with 
+Yrs_to_forecast <- 2015:2019
+
+# number of days from end of last quarter to calculate LQM
+LQM_val <- 5
+
+# TRUE/FALSE if you want to include a custom forecast
+custom_forecast <- FALSE
+
+# SELECT CUSTOM FORECAST NAME FOR OUTPUT
+custom_output_name <- 'cTEST'
+

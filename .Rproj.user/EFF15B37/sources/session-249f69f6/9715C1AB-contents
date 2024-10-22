@@ -1,0 +1,40 @@
+rm(list = ls())
+
+source("./utils_V11.R")
+source("./config_V11.R")
+
+# Load data and correct date
+output1 <- list()
+output2 <- list()
+
+# read data and set to data.table
+key_matrix <- read.csv(matrix_path)
+df <- read.csv(data_path)
+setDT(key_matrix)
+setDT(df)
+
+# calculate time columns and merge
+df <- calculate_time_columns(key_matrix, df, LQM_val, custom_forecast)
+data_matrix <- copy(df)
+
+if(custom_forecast){
+  data_matrix[,CUSTOM:=NULL]
+}
+
+# run forecasts
+## quarterly
+df_Q <- create.statistical.forecasts.qtr(df, Yrs_to_forecast, value)
+## annually
+df_A <- create.statistical.forecasts.ann(df, Yrs_to_forecast, value)
+
+# check for custom column
+if(("CUSTOM" %in% colnames(df)) & custom_forecast){
+  forecast_types <- c(forecast_types, "CUSTOM")
+}
+
+# create table
+## quarterly
+orchestrate.table.creation(df_Q, data_matrix, 'Q')
+## annually
+orchestrate.table.creation(df_A, data_matrix, 'A')
+ 
