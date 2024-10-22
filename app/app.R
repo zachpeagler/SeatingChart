@@ -4,10 +4,13 @@
 library("shiny")
 library("tidyverse")
 library("bslib")
-library("renv")
+library("showtext")
+library("plotly")
 
-# test data
-tdata <- read.csv("C:/Github/Portfolio/Apps/seating_chart/sc_testdata.csv")
+# font setup
+font_add_google("Open Sans", family = "open")
+font_add_google("Montserrat", family = "mont")
+showtext_auto()
 
 # UI
 ui <- navbarPage("Seating Chart App",
@@ -20,7 +23,7 @@ ui <- navbarPage("Seating Chart App",
       actionButton("assign_seats", "Assign Seats")
     ),
     card(height = 500,
-      plotOutput("seating_chart")  # Placeholder for the seating chart
+      plotlyOutput("seating_chart")  # Placeholder for the seating chart
     ),
       card(card_header("Students Not Seated"),
       verbatimTextOutput("leftover")  # Print leftover students
@@ -111,59 +114,72 @@ server <- function(input, output, session) {
   })
   
   output$leftover <- renderPrint({
+    if (length(seating$leftover$name) < 1){
+      "All students seated!"
+    } else{
     seating$leftover$name
+    }
   })
   
-  output$seating_chart <- renderPlot({
+  output$seating_chart <- renderPlotly({
     req(seating$chart)  # Ensure the chart is ready
     
     # Define grid dimensions
     num_rows <- seating$nrow
     num_cols <- seating$ncol
-    
-    # Set up the plot with no points initially
-    plot(seq(from = 1, to = num_cols, length.out = 5), 
-         seq(from= 1, to = num_rows, length.out = 5),
-         type = "n", xlim = c(0, num_cols + 1), ylim = c(0, num_rows + 1),
-         xaxt = "n", yaxt = "n", xlab = "", ylab = "")
-    grid()
-    
-    
-    # Prepare a variable to keep track of student positions for symbol and color
+    temp_df <- data.frame(x = seq(from = 1, to = num_cols, length.out = 5),
+                          y = seq(from= 1, to = num_rows, length.out = 5)
+                          )
+#    # Set up the plot with no points
+#    p <- ggplot(temp_df, aes(x,y))+
+#      geom_blank()+
+#      theme_bw()+
+#      xlab("")+
+#      ylab("")
+
+    # Make a dataframe of student positions with name and group
     student_positions <- data.frame(x = numeric(0), y = numeric(0), name = character(0), group = character(0))
     
-    # Add seat labels (names)
+    ## Add names to dataframe
     for (r in 1:num_rows) {
       for (c in 1:num_cols) {
         if (!is.na(seating$chart[r, c]) && seating$chart[r, c] != "Empty") {
-          # Get the student name and group for coloring
+          ### Get the student name and group for coloring
           student_name <- seating$chart[r, c]
           student_group <- seating$data$group[match(student_name, seating$data$name)]
-          
-          # Store the position for later plotting
+          if (student_group == "") {
+            student_group <- "Ungrouped"
+          }
+          #### Store the position for later plotting
           student_positions <- rbind(student_positions, data.frame(x = c, y = num_rows - r + 1, name = student_name, group = student_group))
         }
       }
     }
-    
-    # Only plot if student_positions is not empty
-    if (nrow(student_positions) > 0) {
-      # Plot each student with appropriate symbol and color
-      for (i in 1:nrow(student_positions)) {
-        seat_color <- seating$colors[student_positions$group[i]]
-        # Use different symbols for front row students
-        if (student_positions$name[i] %in% seating$data$name[seating$data$frontRow == TRUE]) {
-          # Plot with a star for front row students
-          points(student_positions$x[i], student_positions$y[i], pch = 0, col = seat_color, cex = 7)
-        } else {
-          # Plot regular point for others
-          points(student_positions$x[i], student_positions$y[i], pch = 0, col = seat_color, cex = 7)
-        }
-        
-        # Add the text label
-        text(student_positions$x[i], student_positions$y[i], student_positions$name[i], cex = 0.8, col = "black")
-      }
-    }
+    # Initialize plot
+    p <- ggplot(data=student_positions) + 
+      geom_point(data=student_positions,
+        aes(x = x,
+            y = y,
+            color = group
+            ),
+        shape = 0,
+        size = 15
+        ) + # Add points (squares so they look like desks)
+      geom_text(data=student_positions,
+         label = student_positions$name,
+         aes(x = x,
+             y = y
+             ),
+         color = "black"
+         ) + # Add the text label
+      xlim(min(student_positions$x - .5), max(student_positions$x + .5))+
+      ylim(min(student_positions$y - .5), max(student_positions$y + .5))+
+      xlab("")+
+      ylab("")+
+      theme_bw()
+    # plotly it
+    p <- ggplotly(p)
+  return(p)
   })
 }
 

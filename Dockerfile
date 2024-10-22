@@ -1,16 +1,38 @@
-FROM rocker/r-ver:4.3.1
+## get base image with shiny and tidyverse already installed
+FROM rocker/shiny-verse
 
-ENV RENV_VERSION=v1.0.11
-RUN R -e "install.packages('remotes')"
-RUN R -e "remotes::install_github('rstudio/renv@${RENV_VERSION}')"
-RUN R -e "options(renv.config.repos.override = 'https://packagemanager.posit.co/cran/latest')"
+## install debian dependencies
+RUN apt-get update -qq && apt-get -y --no-install-recommends install \
+    libgdal-dev \
+    libproj-dev \
+    libgeos-dev \
+    libudunits2-dev \
+    netcdf-bin \
+    libxml2-dev \
+    libcairo2-dev \
+    libsqlite3-dev \
+    libpq-dev \
+    libssh2-1-dev \
+    unixodbc-dev \
+    libcurl4-openssl-dev \
+    libssl-dev
 
-COPY . /app
+## update system libraries
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get clean
+    
+# install R dependencies
+RUN R -e "install.packages(c('bslib', 'showtext', 'plotly'))"
 
-WORKDIR /app
+# make a directory in the container
+RUN mkdir /home/shiny-app
 
-RUN R -e "renv::restore()"
+# copy the shiny app code
+COPY /app /home/shiny-app
 
-EXPOSE 3838
+# expose port
+EXPOSE 8180
 
-CMD ["R", "-e", "shiny::runApp('./app.R', host='0.0.0.0', port=8180)"]
+# run app
+CMD ["R", "-e", "shiny::runApp('/home/shiny-app/', host='0.0.0.0', port=8180)"]
