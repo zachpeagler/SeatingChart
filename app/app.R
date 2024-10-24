@@ -28,12 +28,17 @@ ui <- navbarPage("Seating Chart App",
       numericInput("g_dist", "Group Distance", min = 0, max = 10, value = 2),
       actionButton("assign_seats", "Assign Seats")
     ),
-    card(height = 500,
-      plotlyOutput("seating_chart")
-    ),
-      card(card_header("Students Not Seated"),
-      verbatimTextOutput("leftover")  # Print leftover students
-          )
+    card(layout_columns(
+      card(height = 500,
+        plotlyOutput("seating_chart")
+      ),
+      card(card_header("Roster"),
+           verbatimTextOutput("roster"),  # Print leftover students
+        card(card_header("Students Not Seated"),
+        verbatimTextOutput("leftover")  # Print leftover students
+            )
+      ), col_widths = c(9, 3)
+    ))
    )
   ),
  nav_panel("Info",
@@ -74,8 +79,10 @@ ui <- navbarPage("Seating Chart App",
         ")
       ) # end description panel
     ) # end tabset panel
-  ) # end info nav panel
-)
+  ), # end info nav panel
+ nav_spacer(),
+ nav_item(tags$a("Github", href = "https://github.com/zachpeagler"))
+ )
 
 ##### SERVER #####
 server <- function(input, output, session) {
@@ -273,6 +280,10 @@ server <- function(input, output, session) {
   })
 
 ### Outputs
+  # Output showing roster
+  output$roster <- renderPrint({
+      seating$data[,-4]
+  })
 # Output showing leftover students
   output$leftover <- renderPrint({
     if (length(seating$leftover$name) < 1){
