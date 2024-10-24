@@ -4,14 +4,32 @@
 ![year](https://img.shields.io/badge/year-2024-blue)
 
 ## Description
-This app uses machine learning algorithms to make seating charts for teachers. The app allows you to upload a csv file and returns a seating chart to separate groups.
+This app makes seating charts for teachers. The app allows you to upload a csv file and returns a seating chart. 
 
-![Screenshot](/screenshots/screenshot_v0.1.png)
+The csv file you provide must be in a specific format, with columns for **name**, **group**, and **frontRow**. A template and an example data file are provided below.
 
-## Data Template
+This app is designed to **separate** members of the same group. Though, conversely it can also be used to group them, if group distance is set to 0.
+
+There are inputs for the number of rows, number of columns, and group distance.
+1. **Number of rows:** controls the number of rows in the seating chart
+2. **Number of columns:** controls the number of columns in the seating chart
+3. **Group distance:** controls the number of desks between members of the same group.
+
+> If the group distance is set too high, especially on a small seating charts, students will fail to be seated according to the desired **group distance** and will be seated randomly instead.
+
+### Screenshot
+![Screenshot](/screenshots/screenshot_v0.2.png)
+
+
+## Data
 This repository contains both an [example dataset](/sc_testdata.csv) and a [template](/sc_template.csv) for creating your own rosters. Files MUST be in .csv format with the column names "name", "group", and "frontRow" (case-sensitive).
 
-## Data Structure
+| Example | Template |
+|---|---|
+|![example_ss](/screenshots/screenshot_example_v1.png)|![template_ss](/screenshots/screenshot_template_v1.png)|
+
+
+### Data Structure
 
 The following structure should be used to format incoming data.
 
