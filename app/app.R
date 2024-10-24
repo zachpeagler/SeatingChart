@@ -4,14 +4,11 @@
 library("shiny")
 library("tidyverse")
 library("bslib")
-#library("showtext")
 library("plotly")
 library("proxy")
 
 # font setup
-#font_add_google("Open Sans", family = "open")
-#font_add_google("Montserrat", family = "mont")
-#showtext_auto()
+
 f_open <- list(
   family = "Helvetica",
   face = "bold"
@@ -32,7 +29,7 @@ ui <- navbarPage("Seating Chart App",
       actionButton("assign_seats", "Assign Seats")
     ),
     card(height = 500,
-      plotlyOutput("seating_chart")  # Placeholder for the seating chart
+      plotlyOutput("seating_chart")
     ),
       card(card_header("Students Not Seated"),
       verbatimTextOutput("leftover")  # Print leftover students
@@ -40,26 +37,45 @@ ui <- navbarPage("Seating Chart App",
    )
   ),
  nav_panel("Info",
-           markdown("For full documentation, example data, and a data template, see the [Github repository.](https://github.com/zachpeagler/SeatingChart) <br>
-                    This app makes seating charts for teachers.
-                    Just upload a csv file and it returns a seating chart. <br>
-
-The csv file you provide must be in a specific format, with columns for **name**, **group**, and **frontRow**. A template and an example data file are provided below. <br>
-
-This app is designed to **separate** members of the same group. Though, conversely it can also be used to group them, if group distance is set to 0. <br>
-
-There are inputs for the number of rows, number of columns, and group distance.<br>
-1. **Number of rows:** controls the number of rows in the seating chart<br>
-2. **Number of columns:** controls the number of columns in the seating chart<br>
-3. **Group distance:** controls the number of desks between members of the same group<br>
-
-> If the group distance is set too high, especially on a small seating charts, students will fail to be seated according to the desired **group distance** and will be seated randomly instead.<br>
-
-Coming soon: custom colors, the option to show empty desks, and the option to save charts to pdf or png.
-
-")
-           )
- )
+    tabsetPanel(
+      tabPanel("Instructions",
+        markdown("
+                 ### 1. Upload csv <br>
+                 For help creating the csv file, see the [Github repository.](https://github.com/zachpeagler/SeatingChart),
+                 which has a template, examples, and more! <br>
+                 ### 2. Select options <br>
+                 Select how many rows and columns to have on the seating chart, 
+                 as well as the distance between members of the same group. <br>
+                 ### 3. Hit **Assign Seats** <br>
+                 Hit the assign seats button, which will take your csv and 
+                 selected options and return a seating chart. If any students were 
+                 left out of the seating chart, their names will be displayed below 
+                 the chart.
+                 ")
+      ), # end instruction panel
+      tabPanel("Description",
+      markdown("For full documentation, example data, and a data template, see the [Github repository.](https://github.com/zachpeagler/SeatingChart) <br>
+        This app makes seating charts for teachers.
+        Just upload a csv file and it returns a seating chart. <br>
+        
+        The csv file you provide must be in a specific format, with columns for **name**, **group**, and **frontRow**. A template and an example data file are provided below. <br>
+        
+        This app is designed to **separate** members of the same group. Though, conversely it can also be used to group them, if group distance is set to 0. <br>
+        
+        There are inputs for the number of rows, number of columns, and group distance.<br>
+        1. **Number of rows:** controls the number of rows in the seating chart<br>
+        2. **Number of columns:** controls the number of columns in the seating chart<br>
+        3. **Group distance:** controls the number of desks between members of the same group<br>
+        
+        > If the group distance is set too high, especially on a small seating charts, students will fail to be seated according to the desired **group distance** and will be seated randomly instead.<br>
+        
+        Coming soon: custom colors, the option to show empty desks, and the option to save charts to pdf or png.
+        
+        ")
+      ) # end description panel
+    ) # end tabset panel
+  ) # end info nav panel
+)
 
 ##### SERVER #####
 server <- function(input, output, session) {
@@ -93,7 +109,7 @@ server <- function(input, output, session) {
     
 # --- Part 1: Assign Front Row Students ---
     front_row_students <- students %>% filter(frontRow == TRUE)
-    
+    front_row_students <- front_row_students[sample(1:nrow(front_row_students)),]
     # Assign front row seats (1st row and possibly 2nd row)
     for (i in seq_len(nrow(front_row_students))) {
       if (i <= num_cols) {
@@ -124,10 +140,12 @@ server <- function(input, output, session) {
     grid_df <- data.frame(grid)
     student_groups <- unique(students$group)
     student_groups <- student_groups[nzchar(student_groups)]
+    rstudent_groups <- sample(student_groups)
     # student group loop
-    for (g in student_groups) {
+    for (g in rstudent_groups) {
       # get students in the group
       g_students <- non_FR_students %>% filter(group == g)
+      g_students <- g_students[sample(1:nrow(g_students)),]
       # student loop
       for (s in seq_len(nrow(g_students))) {
         # set attempt counter to 0

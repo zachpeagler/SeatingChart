@@ -23,7 +23,7 @@ RUN apt-get update && \
     apt-get clean
     
 # install R dependencies
-RUN R -e "install.packages(c('bslib', 'showtext', 'plotly'))"
+RUN R -e "install.packages(c('bslib', 'proxy', 'plotly'))"
 
 # make a directory in the container
 RUN mkdir /home/shiny-app
