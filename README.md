@@ -17,9 +17,42 @@ There are inputs for the number of rows, number of columns, and group distance.
 
 > If the group distance is set too high, especially on a small seating charts, students will fail to be seated according to the desired **group distance** and will be seated randomly instead.
 
-### Screenshot
-![Screenshot](/screenshots/screenshot_v0.2.png)
+### Screenshots
+#### v0.2
+![Screenshot 1](/screenshots/screenshot_v0.2.png)
+#### v0.4
+![Screenshot 2](/screenshots/screenshot_v0.4.png)
 
+## Instructions
+
+### 1. Create csv file
+1. Using your preferred spreadsheet editor (Google Docs, Microsoft Excel, etc.) open the [template](/sc_template.csv) or create a new file and structure it to match the format specified in the [Data](README.md#data) section below. 
+
+2. Fill out the spreadsheet with one student per row, putting the student name in the **name** column, their group in the **group** column, and whether or not you want them in the front row with the **frontRow** column. Note that column names are *case sensitive*.
+
+>The **name** column should be a string of characters specifying the student's name.
+
+>The **group** column specifies the group the student is in, and can be anything (number, letter, string).
+
+>The **frontRow** column should be formatted as **TRUE** or **FALSE**, with TRUE representing the student being in the front row and FALSE representing the student not being in the front row.
+
+3. Save (or export) your file as a csv. This will depend on your preferred spreadsheet editor and can be most quickly solved with a Google search, if necessary.
+
+### 2. Upload csv file
+
+Hit the "BROWSE" button, find your file, and hit open. If it was read properly, the data should now appear in the "ROSTER" section on the right side of the app.
+
+### 3. Select options
+Select how many rows and columns to have on the seating chart, 
+as well as the distance between members of the same group.
+
+Students in the same group will be grouped either together or separately based on the **Group Distance** input. With a low group distance, students in the same group will be close together, and with a high group distance they will be further apart.
+
+### 4. Hit **Assign Seats**
+Hit the assign seats button, which will take your csv and 
+selected options and return a seating chart. If any students were 
+left out of the seating chart, their names will be displayed below 
+the roster on the right.
 
 ## Data
 This repository contains both an [example dataset](/sc_testdata.csv) and a [template](/sc_template.csv) for creating your own rosters. Files MUST be in .csv format with the column names "name", "group", and "frontRow" (case-sensitive).
