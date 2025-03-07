@@ -2,7 +2,7 @@
 
 # dependencies
 library("shiny")
-library("tidyverse")
+library("ggplot2")
 library("bslib")
 library("plotly")
 library("proxy")
@@ -263,9 +263,9 @@ server <- function(input, output, session) {
     }
     # check to see if any students are not seated
     seating$leftover <- subset(students, !(students$name %in% grid))
-    # Debugging: Check grid after assigning grouped students
-    print("Grid after assigning remaining students:")
-    print(grid)
+#    # Debugging: Check grid after assigning grouped students
+#    print("Grid after assigning remaining students:")
+#    print(grid)
     
 # --- Part 4: Fill Empty Seats with "Empty" ---
     empty_seats <- which(is.na(grid), arr.ind = TRUE)  # Get remaining empty seats
