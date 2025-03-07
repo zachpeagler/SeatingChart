@@ -26,6 +26,7 @@ ui <- navbarPage("Seating Chart App",
       numericInput("nrows", "Number of Rows", min = 1, max = 20, value = 5),
       numericInput("ncols", "Number of Columns", min = 1, max = 20, value = 5),
       numericInput("g_dist", "Group Distance", min = 0, max = 10, value = 2),
+      checkboxInput("s_legend", "Show Legend", value = FALSE),
       actionButton("assign_seats", "Assign Seats")
     ),
     card(layout_columns(
@@ -87,17 +88,19 @@ ui <- navbarPage("Seating Chart App",
 ##### SERVER #####
 server <- function(input, output, session) {
 # create reactive values
-  seating <- reactiveValues(data = NULL, chart = NULL, colors = NULL, nrow = NULL, ncol = NULL, leftover = NULL)
+  seating <- reactiveValues(data = NULL, chart = NULL, colors = NULL, nrow = NULL, ncol = NULL, leftover = NULL, showlegend = NULL)
 # upload file observe event
   observeEvent(input$file1, {
     # Read the uploaded CSV file and create a seat column
     seating$data <- read.csv(input$file1$datapath) %>%
       mutate(seat = c(1:nrow(.)))  # Create a seat column
     
-    # Debugging: Check the data loaded from the CSV file
-    print("Data loaded from CSV:")
-    print(seating$data)
+#    # Debugging: Check the data loaded from the CSV file
+#    print("Data loaded from CSV:")
+#    print(seating$data)
+
   })
+
 # assign seat observe event
   observeEvent(input$assign_seats, {
     req(seating$data)  # Ensure data is available
@@ -105,8 +108,10 @@ server <- function(input, output, session) {
     students <- seating$data
     num_rows <- input$nrows
     num_cols <- input$ncols
+    show_legend <- input$s_legend
     seating$nrow <- num_rows
     seating$ncol <- num_cols
+    seating$showlegend <- show_legend
     g_dist <- input$g_dist
     grid <- matrix(NA, nrow = num_rows, ncol = num_cols)  # Initialize an empty grid
     colors <- rainbow(length(unique(students$group)))  # Generate colors for each group
@@ -133,15 +138,16 @@ server <- function(input, output, session) {
                                  group = front_row_students$group[i - num_cols]))
       }
     }
-    
-    
-    # Debugging: Check grid after assigning front-row students
-    print("Grid after assigning front-row students:")
-    print(grid)
-    fr_grid <- grid
+
+#    # Debugging: Check grid after assigning front-row students
+#    print("Grid after assigning front-row students:")
+#    print(grid)
+
+        fr_grid <- grid
+
 # --- Part 2: Assign Group Students ---
     # remove front row students (they're already seated)
-    ## we could also do this by filtering out the studnets in the seated_students
+    ## we could also do this by filtering out the students in the seated_students
     ## dataframe, but for this application its fine
     non_FR_students <- students %>% filter(frontRow == FALSE)
     grid_df <- data.frame(grid)
@@ -235,9 +241,9 @@ server <- function(input, output, session) {
       
     } # end student group loop
     
-    # Debugging: Check grid after assigning grouped students
-    print("Grid after assigning grouped students:")
-    print(grid)
+#    # Debugging: Check grid after assigning grouped students
+#   print("Grid after assigning grouped students:")
+#    print(grid)
 
 # --- Part 3: Assign Remaining Students ---
     # get students not in grid
@@ -268,9 +274,9 @@ server <- function(input, output, session) {
       grid[seat[1], seat[2]] <- "Empty"
     }
     
-    # Debugging: Check grid after assigning empty seats
-    print("Grid after assigning empty seats:")
-    print(grid)
+#    # Debugging: Check grid after assigning empty seats
+#    print("Grid after assigning empty seats:")
+#    print(grid)
     
     # Store the seating chart
     seating$chart <- grid  # Store grid to reactive values
@@ -300,6 +306,8 @@ server <- function(input, output, session) {
     # Define grid dimensions
     num_rows <- seating$nrow
     num_cols <- seating$ncol
+    show_legend <- seating$showlegend
+    
     temp_df <- data.frame(x = seq(from = 1, to = num_cols, length.out = 5),
                           y = seq(from= 1, to = num_rows, length.out = 5)
                           )
@@ -353,6 +361,10 @@ server <- function(input, output, session) {
       font = f_mont,
       title = list(text = "FRONT", font = f_open)
     )
+    # legend
+    if (show_legend == FALSE) {
+      p <- p %>% layout(showlegend = FALSE)
+    }
   return(p)
   })
 }
