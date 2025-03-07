@@ -1,23 +1,49 @@
-# Workflow derived from https://github.com/posit-dev/r-shinylive/tree/actions-v1/examples
-# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
-#
-# Basic example of a GitHub Actions workflow that builds a Shiny app and deploys
-# it to GitHub Pages.
-name: Deploy app to gh-pages
+# Code based on: 
+# https://github.com/posit-dev/r-shinylive/blob/actions-v1/.github/workflows/deploy-app.yaml
+
+name: Deploy
 
 on:
-  # Manually trigger the workflow
-  workflow_dispatch:
-  # Trigger on push to `main` branch
-  push:
-    branches: ["main"]
-  # Trigger on pull request to all branches (but do not deploy to gh-pages)
-  pull_request:
+  workflow_call:
+    inputs:
+      cache-version:
+        type: string
+        default: "1"
+        required: false
 
 jobs:
-  shinylive:
-    uses: posit-dev/r-shinylive/.github/workflows/deploy-app.yaml@actions-v1
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      R_KEEP_PKG_SOURCE: yes
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Upload site artifact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "site"
+
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
     permissions:
       pages: write # to deploy to Pages
       id-token: write # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
